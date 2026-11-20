@@ -1,4 +1,5 @@
-// The host answers agentCliUpdate.check and agentCliUpdate.run.
+// The host answers agentCliUpdate.check and agentCliUpdate.run; a client that runs updates drops
+// an agent's check answers asked before its successful update.
 export const AGENT_CLI_UPDATE_RUNTIME_CAPABILITY = 'agent-cli-update.v1' as const
 
 /** Every agent whose own CLI a native chat runs; Antigravity runs Orca's fixed-version copy. */

@@ -28,15 +28,21 @@ const UPDATE_OUTPUT_BYTES = 64 * 1024
 // An unread version (e.g. a slow first start) is asked again after this, not on every check.
 const UNREAD_RETRY_MS = 10 * 60_000
 
-const versions = new Map<string, { stamp: string; version: string | null; at: number }>()
+const versions = new Map<
+  string,
+  { stamp: string; version: string | null; at: number; read: number }
+>()
+let reads = 0
 const checks = new Map<AgentCliUpdateAgent, Promise<AgentCliUpdate | null>>()
 const runs = new Map<AgentCliUpdateAgent, Promise<AgentCliUpdateRunResult>>()
 
-/** Runs --version only when the installed file changed, or an unread one is due again. */
+/** Runs --version only when the installed file changed, an unread one is due again, or `fresh`. */
 async function installedVersion(
   agent: AgentCliUpdateAgent,
-  cli: OwnAgentCli
+  cli: OwnAgentCli,
+  fresh = false
 ): Promise<string | null> {
+  const read = ++reads
   const input = {
     program: cli.program,
     prefixArgs: cli.version.prefixArgs,
@@ -51,6 +57,7 @@ async function installedVersion(
   const { parseVersion, updatesOutsideLauncher } = agentCliUpdateDefinition(agent)
   const known = versions.get(cli.program)
   if (
+    !fresh &&
     known?.stamp === stamp &&
     ((known.version && !updatesOutsideLauncher) || Date.now() - known.at < UNREAD_RETRY_MS)
   ) {
@@ -59,7 +66,10 @@ async function installedVersion(
   const { version } = parseVersion
     ? await readAgentCliVersion(input, parseVersion)
     : await readAgentCliVersion(input)
-  versions.set(cli.program, { stamp, version, at: Date.now() })
+  // A read begun before a newer one, e.g. a check during an update, must not replace its answer.
+  if ((versions.get(cli.program)?.read ?? 0) < read) {
+    versions.set(cli.program, { stamp, version, at: Date.now(), read })
+  }
   return version
 }
 
@@ -120,7 +130,11 @@ export async function checkAgentCliUpdates(
             console.warn(`[agent-cli-update] ${agent} not checked:`, error)
             return null
           })
-          .finally(() => checks.delete(agent))
+          .finally(() => {
+            if (checks.get(agent) === check) {
+              checks.delete(agent)
+            }
+          })
         checks.set(agent, check)
       }
       return check
@@ -161,8 +175,9 @@ async function runUpdate(
   } catch (error) {
     return { ok: false, output: error instanceof Error ? error.message : String(error), command }
   }
-  // The update may leave the launcher file untouched, so its version is read again.
-  versions.delete(cli.program)
+  // Reads begun before this may predate the update, so none of them answers for it now.
+  versions.set(cli.program, { stamp: '', version: null, at: 0, read: ++reads })
+  checks.delete(agent)
   // New chats and the model list read the replaced binary.
   agentModelCatalogStore.expireLaunchScopes((catalogAgent) => catalogAgent === agent)
   const output = [result.stdout, result.stderr]
@@ -172,7 +187,12 @@ async function runUpdate(
   if (result.code !== 0 || result.timedOut) {
     return { ok: false, output, command }
   }
-  const after = await installedVersion(agent, cli)
+  // The update may move the binary or leave its launcher untouched, so a new chat's CLI is read anew.
+  const after = await installedVersion(
+    agent,
+    (await findOwnAgentCli(agent, settings).catch(() => null)) ?? cli,
+    true
+  )
   const latest = after ? await latestRelease(agent, after) : null
   // A package manager behind the release (e.g. Homebrew) exits cleanly on the old version.
   if (after && latest && compareAppVersions(after, latest) < 0) {

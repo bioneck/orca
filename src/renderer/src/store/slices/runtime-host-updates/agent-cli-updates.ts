@@ -45,6 +45,10 @@ export function agentCliUpdateHostTarget(key: string): RuntimeClientTarget {
 const EMPTY_HOST: AgentCliUpdateHost = { updates: [], runs: {} }
 const checks = new Map<string, Promise<void>>()
 const checkedAt = new Map<string, number>()
+// Orders check requests and successful updates, so an answer asked before an update can't undo it.
+let sequence = 0
+const updatedAt = new Map<string, number>()
+const updatedAtKey = (key: string, agent: AgentCliUpdateAgent) => `${key}\0${agent}`
 
 function sameUpdates(a: readonly AgentCliUpdate[], b: readonly AgentCliUpdate[]): boolean {
   return (
@@ -101,12 +105,20 @@ export const createAgentCliUpdatesSlice: StateCreator<AppState, [], [], AgentCli
       let check = checks.get(key)
       if (!check) {
         checkedAt.set(key, Date.now())
+        const askedAt = ++sequence
         check = callRuntimeRpc<{ updates: AgentCliUpdate[] }>(target, 'agentCliUpdate.check', {
           agents: AGENT_CLI_UPDATE_AGENTS
         })
-          .then(({ updates }) => {
+          .then(({ updates: answered }) => {
+            const current = get().agentCliUpdates.get(key)?.updates ?? []
+            const updatedSince = (agent: AgentCliUpdateAgent) =>
+              (updatedAt.get(updatedAtKey(key, agent)) ?? 0) > askedAt
+            const updates = [
+              ...answered.filter((update) => !updatedSince(update.agent)),
+              ...current.filter((update) => updatedSince(update.agent))
+            ]
             // An unchanged answer leaves the store alone, so the status bar doesn't re-render.
-            if (!sameUpdates(get().agentCliUpdates.get(key)?.updates ?? [], updates)) {
+            if (!sameUpdates(current, updates)) {
               writeHost(key, (host) => ({ ...host, updates }))
             }
           })
@@ -145,6 +157,7 @@ export const createAgentCliUpdatesSlice: StateCreator<AppState, [], [], AgentCli
         })
         return false
       }
+      updatedAt.set(updatedAtKey(key, agent), ++sequence)
       writeHost(key, (host) => {
         const runs = { ...host.runs }
         delete runs[agent]
