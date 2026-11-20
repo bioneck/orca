@@ -45,10 +45,8 @@ export function agentCliUpdateHostTarget(key: string): RuntimeClientTarget {
 const EMPTY_HOST: AgentCliUpdateHost = { updates: [], runs: {} }
 const checks = new Map<string, Promise<void>>()
 const checkedAt = new Map<string, number>()
-// Orders check requests and successful updates, so an answer asked before an update can't undo it.
-let sequence = 0
-const updatedAt = new Map<string, number>()
-const updatedAtKey = (key: string, agent: AgentCliUpdateAgent) => `${key}\0${agent}`
+// Agents updated while a host's check was out, so its older answer can't bring them back.
+const updatedDuringCheck = new Map<string, Set<AgentCliUpdateAgent>>()
 
 function sameUpdates(a: readonly AgentCliUpdate[], b: readonly AgentCliUpdate[]): boolean {
   return (
@@ -105,17 +103,16 @@ export const createAgentCliUpdatesSlice: StateCreator<AppState, [], [], AgentCli
       let check = checks.get(key)
       if (!check) {
         checkedAt.set(key, Date.now())
-        const askedAt = ++sequence
+        const updated = new Set<AgentCliUpdateAgent>()
+        updatedDuringCheck.set(key, updated)
         check = callRuntimeRpc<{ updates: AgentCliUpdate[] }>(target, 'agentCliUpdate.check', {
           agents: AGENT_CLI_UPDATE_AGENTS
         })
           .then(({ updates: answered }) => {
             const current = get().agentCliUpdates.get(key)?.updates ?? []
-            const updatedSince = (agent: AgentCliUpdateAgent) =>
-              (updatedAt.get(updatedAtKey(key, agent)) ?? 0) > askedAt
             const updates = [
-              ...answered.filter((update) => !updatedSince(update.agent)),
-              ...current.filter((update) => updatedSince(update.agent))
+              ...answered.filter((update) => !updated.has(update.agent)),
+              ...current.filter((update) => updated.has(update.agent))
             ]
             // An unchanged answer leaves the store alone, so the status bar doesn't re-render.
             if (!sameUpdates(current, updates)) {
@@ -125,7 +122,10 @@ export const createAgentCliUpdatesSlice: StateCreator<AppState, [], [], AgentCli
           .catch((error: unknown) => {
             console.warn('[agent-cli-update] check failed:', error)
           })
-          .finally(() => checks.delete(key))
+          .finally(() => {
+            checks.delete(key)
+            updatedDuringCheck.delete(key)
+          })
         checks.set(key, check)
       }
       return check
@@ -157,7 +157,7 @@ export const createAgentCliUpdatesSlice: StateCreator<AppState, [], [], AgentCli
         })
         return false
       }
-      updatedAt.set(updatedAtKey(key, agent), ++sequence)
+      updatedDuringCheck.get(key)?.add(agent)
       writeHost(key, (host) => {
         const runs = { ...host.runs }
         delete runs[agent]
