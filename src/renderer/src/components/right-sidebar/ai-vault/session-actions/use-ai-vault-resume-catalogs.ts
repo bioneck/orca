@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { useAppStore } from '@/store/index'
 import {
   readRuntimeStatuses,
-  subscribeRuntimeStatuses,
   appRuntimeStatusSubscriptions
 } from '@/store/slices/runtime-status/views/runtime-status-owner'
 import {
@@ -78,11 +77,10 @@ export function useAiVaultResumeCatalogs(scope: ExecutionHostScope): void {
         loadRuntime(host.environmentId)
       }
     }
-    // One joined wake per publication when catalog and statuses both matter.
-    const stopChanges = all
-      ? appRuntimeStatusSubscriptions().subscribeStore(loadChangedRuntimes)
-      : host?.kind === 'runtime'
-        ? subscribeRuntimeStatuses(loadChangedRuntimes)
+    // One store wake per publication; the reference gate inside skips unchanged inputs.
+    const stopChanges =
+      all || host?.kind === 'runtime'
+        ? appRuntimeStatusSubscriptions().subscribeStore(loadChangedRuntimes)
         : undefined
     if (all) {
       for (const environment of seenEnvironments) {

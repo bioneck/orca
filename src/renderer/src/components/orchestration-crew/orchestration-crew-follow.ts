@@ -1,6 +1,6 @@
 import {
   readRuntimeStatuses,
-  subscribeRuntimeStatuses
+  subscribeAppStoreWithStatuses
 } from '@/store/slices/runtime-status/views/runtime-status-owner'
 import {
   getRuntimeEnvironmentRevision,
@@ -108,7 +108,13 @@ export class CrewFollowSource {
         }
       })
       const revisions = onRuntimeEnvironmentRevisionsChanged(changed)
-      const store = subscribeRuntimeStatuses(() => this.update())
+      const store = subscribeAppStoreWithStatuses(
+        (_state, _previous, statuses, previousStatuses) => {
+          if (statuses !== previousStatuses) {
+            this.update()
+          }
+        }
+      )
       const gone = (): void => {
         this.retiredIdentity = this.current.identity
         this.block(false)

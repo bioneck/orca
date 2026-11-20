@@ -120,9 +120,15 @@ export function ReviewNotesSendMenuContent({
         return previous
       }
       inputs = nextInputs
+      // A narrow projection: only the fields target derivation reads, with the view's guard set.
       const next = deriveNotesSendAgentTargets(
         {
-          ...state,
+          agentStatusByPaneKey: state.agentStatusByPaneKey,
+          tabsByWorktree: state.tabsByWorktree,
+          unifiedTabsByWorktree: state.unifiedTabsByWorktree,
+          terminalLayoutsByTabId: state.terminalLayoutsByTabId,
+          ptyIdsByTabId: state.ptyIdsByTabId,
+          runtimePaneTitlesByTabId: state.runtimePaneTitlesByTabId,
           sendApprovalGuardEnvironmentIds: selectSendApprovalGuardEnvironmentIds(statuses)
         },
         worktreeId,
