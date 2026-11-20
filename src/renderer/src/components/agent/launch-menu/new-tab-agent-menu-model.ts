@@ -78,7 +78,8 @@ export function sameAgentLaunchPickerModel(a: NewTabAgentMenuModel, b: NewTabAge
         row.agent,
         row.kind,
         row.executionHostId,
-        'reason' in row ? row.reason : undefined
+        'reason' in row ? row.reason : undefined,
+        'setup' in row ? row.setup : undefined
       ])
     ],
     [
@@ -106,7 +107,8 @@ export function sameAgentLaunchPickerModel(a: NewTabAgentMenuModel, b: NewTabAge
         row.agent,
         row.kind,
         row.executionHostId,
-        'reason' in row ? row.reason : undefined
+        'reason' in row ? row.reason : undefined,
+        'setup' in row ? row.setup : undefined
       ])
     ]
   )
